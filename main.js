@@ -441,6 +441,14 @@ function updateEnemyAI(e, dt, now) {
   switch (e.type) {
     case "chaser":
     case "tank":
+    case "kamikaze":
+      moveX = Math.cos(angleToPlayer) * e.speed;
+      moveY = Math.sin(angleToPlayer) * e.speed;
+      
+      moveX = moveX * 0.7 + e.avoidance.direction.x * e.speed * 0.3;
+      moveY = moveY * 0.7 + e.avoidance.direction.y * e.speed * 0.3;
+      break;
+      
     case "shooter":
       const distance = dist(e, player);
       if (distance > 340) {
