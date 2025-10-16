@@ -518,6 +518,20 @@ function updateEnemyAI(e, dt, now) {
       
       if (dist(e, player) < 150) {
         e.explosionTimer = (e.explosionTimer || 0) + 1;
+
+              e.hp -= b.dmg;
+      
+      if (e.hp <= 0) {
+        const particleColor = e.type === "tank" ? "#550000" : "#ff5555";
+        spawnParticles(e.x, e.y, particleColor, 8, 2, 500);
+        if (Math.random() < 0.12) spawnItem();
+        if (Math.random() < 0.05) player.grenades++;
+        enemies.splice(j, 1);
+        score += e.type === "tank" ? 30 : (e.type === "shooter" ? 18 : 10);
+        killCount++;
+        player.score += e.type === "tank" ? 30 : (e.type === "shooter" ? 18 : 10);
+      }
+      
         if (e.explosionTimer > 60) {
           createExplosion(e.x, e.y, 120, 40, "#ff00ff");
           return true; 
@@ -822,10 +836,9 @@ if (b.weaponType === "rocket" || (b.explosive)) {
   for (let j = enemies.length - 1; j >= 0; j--) {
     const e = enemies[j];
     if (dist(b, e) < b.r + e.r) {
-      // Aplica dano direto do rocket
+      
       e.hp -= b.dmg;
       
-      // Verifica se o inimigo morreu
       if (e.hp <= 0) {
         const particleColor = e.type === "tank" ? "#550000" : "#ff5555";
         spawnParticles(e.x, e.y, particleColor, 8, 2, 500);
