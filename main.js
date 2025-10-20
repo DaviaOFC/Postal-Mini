@@ -156,7 +156,150 @@ const audio = {
   }
 };
 
+// ========== SISTEMA DE CONTROLES SIMPLIFICADO ==========
+const controls = {
+  gamepad: null,
+  connected: false,
+  
+  // Mapeamento básico universal
+  buttons: {
+    A: 0, B: 1, X: 2, Y: 3,
+    LB: 4, RB: 5,
+    LT: 6, RT: 7,
+    SELECT: 8, START: 9,
+    L3: 10, R3: 11,
+    UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15
+  },
+  
+  // Estado atual
+  state: {
+    // Movimento
+    leftStickX: 0,
+    leftStickY: 0,
+    rightStickX: 0, 
+    rightStickY: 0,
+    
+    // Ações
+    shooting: false,
+    dashing: false,
+    throwingGrenade: false,
+    weaponLeft: false,
+    weaponRight: false,
+    weaponLeftJustPressed: false,
+    weaponRightJustPressed: false
+  },
+  
+  init() {
+    console.log('🎮 Inicializando controles...');
+    window.addEventListener("gamepadconnected", (e) => {
+      console.log('✅ Gamepad conectado:', e.gamepad.id);
+      this.gamepad = e.gamepad;
+      this.connected = true;
+      
+      // Teste de vibração
+      if (e.gamepad.vibrationActuator) {
+        e.gamepad.vibrationActuator.playEffect("dual-rumble", {
+          startDelay: 0,
+          duration: 200,
+          weakMagnitude: 0.5,
+          strongMagnitude: 0.3,
+        });
+      }
+    });
+    
+    window.addEventListener("gamepaddisconnected", (e) => {
+      console.log('❌ Gamepad desconectado');
+      this.gamepad = null;
+      this.connected = false;
+    });
+  },
+  
+  update() {
+    if (!this.connected) return;
+    
+    // Obter gamepad atualizado
+    const gamepads = navigator.getGamepads();
+    this.gamepad = gamepads[this.gamepad.index];
+    if (!this.gamepad) return;
+    
+    // Ler eixos com zona morta
+    this.state.leftStickX = this.applyDeadZone(this.gamepad.axes[0]);
+    this.state.leftStickY = this.applyDeadZone(this.gamepad.axes[1]);
+    this.state.rightStickX = this.applyDeadZone(this.gamepad.axes[2]);
+    this.state.rightStickY = this.applyDeadZone(this.gamepad.axes[3]);
+    
+    // Atualizar mira do mouse baseada no stick direito
+    if (Math.abs(this.state.rightStickX) > 0.1 || Math.abs(this.state.rightStickY) > 0.1) {
+      mouse.x = clamp(mouse.x + this.state.rightStickX * 12, 0, WIDTH);
+      mouse.y = clamp(mouse.y + this.state.rightStickY * 12, 0, HEIGHT);
+    }
+    
+    // Ler botões principais
+    this.state.shooting = this.gamepad.buttons[this.buttons.RT]?.pressed || 
+                         this.gamepad.buttons[this.buttons.RT]?.value > 0.3;
+    
+    this.state.dashing = this.gamepad.buttons[this.buttons.A]?.pressed;
+    this.state.throwingGrenade = this.gamepad.buttons[this.buttons.B]?.pressed;
 
+    // Weapon switching: just pressed logic
+    const prevWeaponLeft = this.state.weaponLeft;
+    const prevWeaponRight = this.state.weaponRight;
+    this.state.weaponLeft = this.gamepad.buttons[this.buttons.LB]?.pressed;
+    this.state.weaponRight = this.gamepad.buttons[this.buttons.RB]?.pressed;
+    this.state.weaponLeftJustPressed = this.state.weaponLeft && !prevWeaponLeft;
+    this.state.weaponRightJustPressed = this.state.weaponRight && !prevWeaponRight;
+    
+    // DEBUG: Mostrar estado dos botões ocasionalmente
+    if (debug.enabled && Math.random() < 0.05) {
+      this.debug();
+    }
+  },
+  
+  applyDeadZone(value) {
+    return Math.abs(value) > 0.15 ? value : 0;
+  },
+  
+  debug() {
+    if (!this.connected) return;
+    
+    console.log('🎮 DEBUG Controles:');
+    console.log('📊 Eixos:', {
+      LX: this.state.leftStickX.toFixed(2),
+      LY: this.state.leftStickY.toFixed(2), 
+      RX: this.state.rightStickX.toFixed(2),
+      RY: this.state.rightStickY.toFixed(2)
+    });
+    
+    console.log('🔘 Botões:', {
+      Atirar: this.state.shooting,
+      Dash: this.state.dashing,
+      Granada: this.state.throwingGrenade,
+      ArmaEsq: this.state.weaponLeft,
+      ArmaDir: this.state.weaponRight
+    });
+    
+    // Mostrar todos os botões pressionados
+    const pressed = [];
+    this.gamepad.buttons.forEach((btn, i) => {
+      if (btn.pressed || btn.value > 0.1) pressed.push(i);
+    });
+    if (pressed.length > 0) {
+      console.log('🔍 Todos os botões pressionados:', pressed);
+    }
+  },
+  
+  vibrate(power = 0.5, duration = 100) {
+    if (!this.connected || !this.gamepad.vibrationActuator) return;
+    
+    this.gamepad.vibrationActuator.playEffect("dual-rumble", {
+      startDelay: 0,
+      duration: duration,
+      weakMagnitude: power * 0.7,
+      strongMagnitude: power * 0.3,
+    }).catch(() => {});
+  }
+};
+// ========== FIM DOS CONTROLES SIMPLIFICADOS ==========
 
 function updateCamera() {
   camera.targetX = clamp(player.x - WIDTH / 2, 0, MAP_WIDTH - WIDTH);
@@ -233,6 +376,9 @@ function throwGrenade() {
   
   player.grenades--;
   spawnParticles(player.x, player.y, "#00ff00", 8, 2, 400, 3);
+  
+  // Vibração do gamepad ao lançar granada
+  controls.vibrate(0.6, 200);
 }
 
 function spawnPowerUp() {
@@ -519,19 +665,6 @@ function updateEnemyAI(e, dt, now) {
       if (dist(e, player) < 150) {
         e.explosionTimer = (e.explosionTimer || 0) + 1;
 
-              e.hp -= b.dmg;
-      
-      if (e.hp <= 0) {
-        const particleColor = e.type === "tank" ? "#550000" : "#ff5555";
-        spawnParticles(e.x, e.y, particleColor, 8, 2, 500);
-        if (Math.random() < 0.12) spawnItem();
-        if (Math.random() < 0.05) player.grenades++;
-        enemies.splice(j, 1);
-        score += e.type === "tank" ? 30 : (e.type === "shooter" ? 18 : 10);
-        killCount++;
-        player.score += e.type === "tank" ? 30 : (e.type === "shooter" ? 18 : 10);
-      }
-      
         if (e.explosionTimer > 60) {
           createExplosion(e.x, e.y, 120, 40, "#ff00ff");
           return true; 
@@ -540,8 +673,6 @@ function updateEnemyAI(e, dt, now) {
         e.explosionTimer = 0;
       }
       break;
-      
-    
   }
   
   e.x += moveX;
@@ -604,6 +735,9 @@ function shoot() {
   spawnParticles(player.x, player.y, gun.color, 6, 2, 300);
   triggerCameraShake(gun.recoil * 0.8, 3);
   audio.play(gun.sound);
+  
+  // Pequena vibração ao atirar
+  controls.vibrate(0.2, 50);
 }
 
 function circleRectColl(circle, rect) {
@@ -723,14 +857,19 @@ function applyUpgrade(upgradeKey) {
   showUpgrades = false;
   availableUpgrades = [];
   spawnParticles(player.x, player.y, upgrade.color, 20, 3, 600, 4, "circle");
+  
+  // Vibração ao aplicar upgrade
+  controls.vibrate(0.4, 300);
 }
 
 
 function update(dt) {
   if (gameOver || resetInProgress) return;
   
-  const now = performance.now();
+   const now = performance.now();
   
+  // Atualizar controles do gamepad
+  controls.update();
   
   debug.particles = particles.length;
   debug.bullets = bullets.length;
@@ -779,12 +918,20 @@ function update(dt) {
     }
   }
   
-  
+   // MOVIMENTO - Sistema híbrido (teclado + gamepad)
   let dx = 0, dy = 0;
+  
+  // Teclado
   if (keys["w"]) dy--;
   if (keys["s"]) dy++;
   if (keys["a"]) dx--;
   if (keys["d"]) dx++;
+  
+  // Gamepad - Stick esquerdo (sobrescreve teclado se estiver sendo usado)
+  if (Math.abs(controls.state.leftStickX) > 0.1 || Math.abs(controls.state.leftStickY) > 0.1) {
+    dx = controls.state.leftStickX;
+    dy = controls.state.leftStickY;
+  }
   
   const isMoving = dx !== 0 || dy !== 0;
   if (isMoving) {
@@ -812,12 +959,52 @@ function update(dt) {
   player.x += player.vx;
   player.y += player.vy;
   player.x = clamp(player.x, player.r, MAP_WIDTH - player.r);
-  player.y = clamp(player.y, player.r, MAP_HEIGHT - player.r);
+  player.y = clamp(player.y, player.r, MAP_HEIGHT - player.y);
   resolveColl(player);
   
+  // DISPARO - Sistema híbrido
+  if (mouse.down || controls.state.shooting) {
+    shoot();
+  }
   
-  if (mouse.down) shoot();
+  // DASH - Sistema híbrido
+  if ((keys["shift"] || controls.state.dashing) && player.dash.cooldown <= 0 && !resetInProgress) {
+    const worldMouseX = mouse.x + camera.x;
+    const worldMouseY = mouse.y + camera.y;
+    const angle = Math.atan2(worldMouseY - player.y, worldMouseX - player.x);
+    
+    player.vx += Math.cos(angle) * player.dash.power;
+    player.vy += Math.sin(angle) * player.dash.power;
+    player.dash.duration = 10;
+    player.dash.cooldown = 90;
+    player.invulnerable = 15;
+    spawnParticles(player.x, player.y, "#55aaff", 12, 3, 400);
+    
+    // Vibração
+    controls.vibrate(0.8, 150);
+  }
   
+  // TROCAR ARMA - Gamepad
+  if (controls.state.weaponLeftJustPressed) {
+    const weaponKeys = Object.keys(weapons);
+    const currentIndex = weaponKeys.indexOf(player.weapon);
+    const newIndex = currentIndex > 0 ? currentIndex - 1 : weaponKeys.length - 1;
+    player.weapon = weaponKeys[newIndex];
+    controls.vibrate(0.3, 50);
+  }
+  
+  if (controls.state.weaponRightJustPressed) {
+    const weaponKeys = Object.keys(weapons);
+    const currentIndex = weaponKeys.indexOf(player.weapon);
+    const newIndex = currentIndex < weaponKeys.length - 1 ? currentIndex + 1 : 0;
+    player.weapon = weaponKeys[newIndex];
+    controls.vibrate(0.3, 50);
+  }
+  
+  // GRANADA - Sistema híbrido
+  if ((keys["q"] || controls.state.throwingGrenade) && player.grenades > 0) {
+    throwGrenade();
+  }
   
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
@@ -1582,6 +1769,14 @@ function draw() {
     ctx.fillText(`Enemies: ${debug.enemies}`, 10, 65);
     ctx.fillText(`Explosions: ${explosions.length}`, 10, 80);
     ctx.fillText(`Grenades: ${grenades.length}`, 10, 95);
+    
+    // Informações do gamepad no debug
+    if (controls.gamepad.connected) {
+      ctx.fillText(`Gamepad: CONECTADO`, 10, 110);
+      ctx.fillText(`Eixos: ${controls.gamepad.axes.map(a => a.toFixed(2)).join(', ')}`, 10, 125);
+    } else {
+      ctx.fillText(`Gamepad: NÃO CONECTADO`, 10, 110);
+    }
   }
 }
 
@@ -1697,7 +1892,7 @@ function drawHUD() {
   ctx.strokeRect(20, 145, nadeBoxWidth, nadeBoxHeight);
   ctx.fillStyle = "#0f0";
   ctx.font = "16px Arial";
-  ctx.fillText(`Granadas: ${player.grenades} (Q)`, 30, 145 + nadeBoxHeight/2);
+  ctx.fillText(`Granadas: ${player.grenades} (Q/Botão B)`, 30, 145 + nadeBoxHeight/2);
   
   
   const infoBoxWidth = 300;
@@ -1710,6 +1905,23 @@ function drawHUD() {
   ctx.textAlign = "center";
   ctx.font = "bold 16px Arial";
   ctx.fillText(`Wave ${wave} | Pontuação: ${player.score} | Abates: ${killCount}`, WIDTH - infoBoxWidth/2 - 20, 20 + infoBoxHeight/2);
+  
+  // Adicionar indicador de gamepad
+  if (controls.gamepad.connected) {
+    ctx.fillStyle = "#55ff55";
+    ctx.font = "12px Arial";
+    ctx.textAlign = "right";
+    ctx.fillText("🎮 Gamepad Conectado", WIDTH - 20, 70);
+  }
+  
+  // Instruções de controles (apenas nas primeiras waves)
+  if (wave === 1 && killCount < 5) {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.font = "12px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("Controles: WASD para mover, Mouse para mirar, CLIQUE para atirar, SHIFT para dash, Q para granada", WIDTH / 2, HEIGHT - 20);
+    ctx.fillText("Gamepad: Stick esquerdo mover, direito mirar, RT atirar, A dash, B granada, LB/RB trocar arma", WIDTH / 2, HEIGHT - 5);
+  }
 }
 
 function drawWeaponSelector() {
@@ -1756,12 +1968,21 @@ function handleKeyDown(e) {
   const key = e.key.toLowerCase();
   keys[key] = true;
   
+  // Prevenir comportamento padrão para teclas de jogo
+  if ([' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key)) {
+    e.preventDefault();
+  }
+  
   if (!resetInProgress) {
     const weaponKeys = ["1", "2", "3", "4", "5", "6", "7"];
     const weaponNames = ["smg", "pistol", "shotgun", "minigun", "rocket", "flamethrower", "railgun"];
     
     const index = weaponKeys.indexOf(key);
-    if (index !== -1) player.weapon = weaponNames[index];
+    if (index !== -1) {
+      player.weapon = weaponNames[index];
+      // Vibração ao trocar arma
+      controls.vibrate(0.3, 50);
+    }
     
     if (key === "q") throwGrenade();
   }
@@ -1778,14 +1999,10 @@ function handleKeyDown(e) {
   
   if (key === "h") debug.enabled = !debug.enabled;
   
-  if (key === "shift" && player.dash.cooldown <= 0 && !resetInProgress) {
-    const angle = Math.atan2(mouse.y - HEIGHT / 2, mouse.x - WIDTH / 2);
-    player.vx += Math.cos(angle) * player.dash.power;
-    player.vy += Math.sin(angle) * player.dash.power;
-    player.dash.duration = 10;
-    player.dash.cooldown = 90;
-    player.invulnerable = 15;
-    spawnParticles(player.x, player.y, "#55aaff", 12, 3, 400);
+  // Menu de pausa (simplificado)
+  if (key === "escape" || key === "p" || controls.state.pause) {
+    // Aqui você pode implementar um menu de pausa
+    console.log("Pausa pressionada - Implementar menu de pausa");
   }
   
   
@@ -1830,6 +2047,9 @@ function setupEventListeners() {
   canvas.addEventListener("mousedown", handleMouseDown);
   window.addEventListener("mouseup", handleMouseUp);
   canvas.addEventListener('contextmenu', e => e.preventDefault());
+  
+  // Inicializar controles simplificados
+  controls.init();
 }
 
 
