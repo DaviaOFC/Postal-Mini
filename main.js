@@ -125,14 +125,13 @@ let showUpgrades = false;
 let upgradeSelectionTime = 0;
 
 const upgradeTypes = {
-  health: { name: "Vida Extra", desc: "+50 HP máximo", type: "health", color: "#ff5555" },
-  damage: { name: "Dano Aumentado", desc: "+25% de dano", type: "damage", color: "#ffff55" },
-  speed: { name: "Velocidade", desc: "+20% de velocidade", type: "speed", color: "#55ff55" },
-  fireRate: { name: "Cadência", desc: "+15% de velocidade", type: "fireRate", color: "#5555ff" },
-  dash: { name: "Dash Melhorado", desc: "-30% recarga", type: "dash", color: "#55ffff" },
+  health: { name: "Extra Life", desc: "+50 HP máximo", type: "health", color: "#ff5555" },
+  damage: { name: "Better Damage", desc: "+25% de dano", type: "damage", color: "#ffff55" },
+  speed: { name: "Speed", desc: "+20% de velocidade", type: "speed", color: "#55ff55" },
+  fireRate: { name: "Cadency", desc: "+15% de velocidade", type: "fireRate", color: "#5555ff" },
+  dash: { name: "Better Dash", desc: "-30% recarga", type: "dash", color: "#55ffff" },
   grenade: { name: "Mais Granadas", desc: "+2 granadas", type: "grenade", color: "#ff55ff" }
 };
-
 
 const walls = [
   { x: 600, y: 400, w: 200, h: 40 }, { x: 1200, y: 800, w: 60, h: 300 },
@@ -440,72 +439,89 @@ function spawnEnemy(typeHint) {
   enemies.push(e);
 }
 
+function handleMovement_Chase(e, angleToPlayer) {
+    return {
+        moveX: Math.cos(angleToPlayer) * e.speed,
+        moveY: Math.sin(angleToPlayer) * e.speed
+    };
+}
+
+function handleMovement_Strafe(e, player, angleToPlayer) {
+    let moveX = 0, moveY = 0;
+    const distance = dist(e, player);
+    const idealDistance = 300; 
+
+    if (distance > idealDistance + 40) { 
+        moveX = Math.cos(angleToPlayer) * e.speed;
+        moveY = Math.sin(angleToPlayer) * e.speed;
+    } else if (distance < idealDistance - 40) { 
+        moveX = -Math.cos(angleToPlayer) * e.speed;
+        moveY = -Math.sin(angleToPlayer) * e.speed;
+    } else { 
+        moveX = Math.cos(angleToPlayer + Math.PI / 2) * e.speed * 0.7;
+        moveY = Math.sin(angleToPlayer + Math.PI / 2) * e.speed * 0.7;
+    }
+
+    return { moveX, moveY };
+}
+
+function handleShooting_Default(e, dt, now, angleToPlayer, wave) {
+    const distance = dist(e, player);
+    e.cooldown -= dt * 16.67;
+    if (e.cooldown <= 0 && distance < 600 && enemyBullets.length < CONFIG.MAX_ENEMY_BULLETS) {
+        e.cooldown = e.fireRate;
+        const bulletSpeed = 3 + Math.min(2, wave * 0.08);
+        const bvx = Math.cos(angleToPlayer) * bulletSpeed;
+        const bvy = Math.sin(angleToPlayer) * bulletSpeed;
+        enemyBullets.push({
+            x: e.x, y: e.y, vx: bvx, vy: bvy, r: 5,
+            dmg: 8 + Math.floor(wave / 3), life: 3000, born: now
+        });
+    }
+}
+
 function updateEnemyAI(e, dt, now) {
   const angleToPlayer = angleBetween(e, player);
-  
   let moveX = 0, moveY = 0;
   
   switch (e.type) {
     case "chaser":
-      moveX = Math.cos(angleToPlayer) * e.speed * 1.5;
-      moveY = Math.sin(angleToPlayer) * e.speed * 1.5;
+    case "tank": {
+      const movement = handleMovement_Chase(e, angleToPlayer);
+      moveX = movement.moveX;
+      moveY = movement.moveY;
       break;
-    case "tank":
-      moveX = Math.cos(angleToPlayer) * e.speed;
-      moveY = Math.sin(angleToPlayer) * e.speed;
+    }
+    
+    case "shooter": {
+      const movement = handleMovement_Strafe(e, player, angleToPlayer);
+      moveX = movement.moveX;
+      moveY = movement.moveY;
+      handleShooting_Default(e, dt, now, angleToPlayer, wave);
       break;
-    case "shooter":
-      const distance = dist(e, player);
-      if (distance > 340) {
-        moveX = Math.cos(angleToPlayer) * e.speed;
-        moveY = Math.sin(angleToPlayer) * e.speed;
-      } else if (distance < 240) {
-        moveX = -Math.cos(angleToPlayer) * e.speed;
-        moveY = -Math.sin(angleToPlayer) * e.speed;
-      }
+    }
       
-      moveX = moveX * 0.8 + e.avoidance.direction.x * e.speed * 0.2;
-      moveY = moveY * 0.8 + e.avoidance.direction.y * e.speed * 0.2;
-      
-      
-      e.cooldown -= dt * 16.67;
-      if (e.cooldown <= 0 && distance < 600 && enemyBullets.length < CONFIG.MAX_ENEMY_BULLETS) {
-        e.cooldown = e.fireRate;
-        const bvx = Math.cos(angleToPlayer) * (3 + Math.min(2, wave * 0.08));
-        const bvy = Math.sin(angleToPlayer) * (3 + Math.min(2, wave * 0.08));
-        enemyBullets.push({
-          x: e.x, y: e.y, vx: bvx, vy: bvy, r: 5,
-          dmg: 8 + Math.floor(wave / 3), life: 3000, born: now
-        });
-      }
-      break;
-      
-    case "sniper":
+    case "sniper": {
+      const movement = handleMovement_Strafe(e, player, angleToPlayer);
+      moveX = movement.moveX;
+      moveY = movement.moveY;
       const sniperDist = dist(e, player);
-      if (sniperDist > 400) {
-        moveX = Math.cos(angleToPlayer) * e.speed;
-        moveY = Math.sin(angleToPlayer) * e.speed;
-      } else if (sniperDist < 200) {
-        moveX = -Math.cos(angleToPlayer) * e.speed;
-        moveY = -Math.sin(angleToPlayer) * e.speed;
-      }
-      
       e.cooldown -= dt * 16.67;
       if (e.cooldown <= 0 && sniperDist < e.range && enemyBullets.length < CONFIG.MAX_ENEMY_BULLETS) {
         e.cooldown = e.fireRate;
-        const bvx = Math.cos(angleToPlayer) * 8;
-        const bvy = Math.sin(angleToPlayer) * 8;
         enemyBullets.push({
-          x: e.x, y: e.y, vx: bvx, vy: bvy, r: 4,
-          dmg: 25 + Math.floor(wave / 2), life: 4000, born: now,
+          x: e.x, y: e.y, vx: Math.cos(angleToPlayer) * 8, vy: Math.sin(angleToPlayer) * 8, 
+          r: 4, dmg: 25 + Math.floor(wave / 2), life: 4000, born: now,
           color: "#0088ff", trail: true
         });
       }
       break;
+    }
       
-    case "kamikaze":
-      moveX = Math.cos(angleToPlayer) * e.speed * 3;
-      moveY = Math.sin(angleToPlayer) * e.speed * 3;
+    case "kamikaze": {
+      const movement = handleMovement_Chase(e, angleToPlayer);
+      moveX = movement.moveX * 1.5; 
+      moveY = movement.moveY * 1.5;
       if (dist(e, player) < e.r + player.r + 6) {
         if (player.invulnerable <= 0) {
           player.hp -= 18 + Math.floor(wave * 0.8);
@@ -516,28 +532,20 @@ function updateEnemyAI(e, dt, now) {
         return true; 
       }
       break;
+    }
       
-    case "exploder":
-      moveX = Math.cos(angleToPlayer) * e.speed;
-      moveY = Math.sin(angleToPlayer) * e.speed;
+    case "exploder": {
+      const movement = handleMovement_Chase(e, angleToPlayer);
+      moveX = movement.moveX;
+      moveY = movement.moveY;
       
-      if (dist(e, player) < 150) {
+      const PROXIMITY_TO_EXPLODE = 150;
+      const EXPLOSION_FUSE_TIME = 60; 
+
+      if (dist(e, player) < PROXIMITY_TO_EXPLODE) {
         e.explosionTimer = (e.explosionTimer || 0) + 1;
 
-              e.hp -= b.dmg;
-      
-      if (e.hp <= 0) {
-        const particleColor = e.type === "tank" ? "#550000" : "#ff5555";
-        spawnParticles(e.x, e.y, particleColor, 8, 2, 500);
-        if (Math.random() < 0.12) spawnItem();
-        if (Math.random() < 0.05) player.grenades++;
-        enemies.splice(j, 1);
-        score += e.type === "tank" ? 30 : (e.type === "shooter" ? 18 : 10);
-        killCount++;
-        player.score += e.type === "tank" ? 30 : (e.type === "shooter" ? 18 : 10);
-      }
-      
-        if (e.explosionTimer > 60) {
+        if (e.explosionTimer > EXPLOSION_FUSE_TIME) {
           createExplosion(e.x, e.y, 120, 40, "#ff00ff");
           return true; 
         }
@@ -545,12 +553,11 @@ function updateEnemyAI(e, dt, now) {
         e.explosionTimer = 0;
       }
       break;
-      
-    
+    }
   }
   
-  e.x += moveX;
-  e.y += moveY;
+  e.x += moveX * 0.8 + e.avoidance.direction.x * e.speed * 0.2;
+  e.y += moveY * 0.8 + e.avoidance.direction.y * e.speed * 0.2;
   return false;
 }
 
@@ -889,6 +896,15 @@ function update(dt) {
           throwGrenade(); 
       }
 
+      if ((isGamepadButtonPressed(8)) && !resetInProgress && !resetRequested) {
+        resetRequested = true;
+        setTimeout(() => {
+          if (resetRequested) {
+            reset();
+            resetRequested = false;
+          }
+        }, 0);
+      }
       
       const weaponKeys = Object.keys(weapons);
       const currentIndex = weaponKeys.indexOf(player.weapon);
@@ -1605,7 +1621,7 @@ function draw() {
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     ctx.font = "bold 28px Arial";
-    ctx.fillText("ESCOLHA UM MELHORIA", WIDTH/2, 80);
+    ctx.fillText("CHOOSE A UPGRADE", WIDTH/2, 80);
     
     const totalWidth = availableUpgrades.length * 180 + (availableUpgrades.length - 1) * 20;
     const startX = (WIDTH - totalWidth) / 2;
@@ -1638,7 +1654,7 @@ function draw() {
     
     ctx.fillStyle = "#fff";
     ctx.font = "14px Arial";
-    ctx.fillText(`Tempo: ${Math.ceil(upgradeSelectionTime / 60)}s`, WIDTH/2, HEIGHT - 40);
+    ctx.fillText(`Time: ${Math.ceil(upgradeSelectionTime / 60)}s`, WIDTH/2, HEIGHT - 40);
   }
   
   
@@ -1653,7 +1669,6 @@ function draw() {
     ctx.fillText(`Final Score: ${player.score} | Kills: ${killCount} | Waves: ${wave}`, WIDTH / 2, HEIGHT / 2);
     ctx.fillText("Press R to restart", WIDTH / 2, HEIGHT / 2 + 40);
   }
-  
   
   if (damageFlash > 0) {
     ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash * 0.3})`;
@@ -1755,7 +1770,7 @@ function drawHUD() {
   const gun = weapons[player.weapon];
   ctx.fillStyle = "#fff";
   ctx.fillText(`${gun.name}`, 30, 60 + 15);
-  ctx.fillText(`Munição: ${gun.ammo === Infinity ? "∞" : gun.ammo}`, 30, 60 + 35);
+  ctx.fillText(`Ammo: ${gun.ammo === Infinity ? "∞" : gun.ammo}`, 30, 60 + 35);
   
   
   const dashBoxWidth = 250;
@@ -1768,13 +1783,13 @@ function drawHUD() {
     ctx.fillRect(20, 115, dashBoxWidth * dashPercent, dashBoxHeight);
     ctx.fillStyle = "#fff";
     ctx.font = "12px Arial";
-    ctx.fillText(`Recarga: ${Math.ceil(player.dash.cooldown / 60)}s`, 30, 115 + dashBoxHeight/2);
+    ctx.fillText(`Recharge: ${Math.ceil(player.dash.cooldown / 60)}s`, 30, 115 + dashBoxHeight/2);
   } else {
     ctx.fillStyle = "#55aaff";
     ctx.fillRect(20, 115, dashBoxWidth, dashBoxHeight);
     ctx.fillStyle = "#000";
     ctx.font = "bold 12px Arial";
-    ctx.fillText("DASH PRONTO", 30, 115 + dashBoxHeight/2);
+    ctx.fillText("DASH READY", 30, 115 + dashBoxHeight/2);
   }
   ctx.strokeStyle = "#fff";
   ctx.strokeRect(20, 115, dashBoxWidth, dashBoxHeight);
@@ -1788,7 +1803,7 @@ function drawHUD() {
   ctx.strokeRect(20, 145, nadeBoxWidth, nadeBoxHeight);
   ctx.fillStyle = "#0f0";
   ctx.font = "16px Arial";
-  ctx.fillText(`Granadas: ${player.grenades} (Q)`, 30, 145 + nadeBoxHeight/2);
+  ctx.fillText(`Grenades: ${player.grenades} (Q)`, 30, 145 + nadeBoxHeight/2);
   
   
   const infoBoxWidth = 300;
@@ -1800,7 +1815,7 @@ function drawHUD() {
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.font = "bold 16px Arial";
-  ctx.fillText(`Wave ${wave} | Pontuação: ${player.score} | Abates: ${killCount}`, WIDTH - infoBoxWidth/2 - 20, 20 + infoBoxHeight/2);
+  ctx.fillText(`Wave ${wave} | Score: ${player.score} | Kills: ${killCount}`, WIDTH - infoBoxWidth/2 - 20, 20 + infoBoxHeight/2);
 }
 
 function drawWeaponSelector() {
@@ -1857,7 +1872,7 @@ function handleKeyDown(e) {
     if (key === "q") throwGrenade();
   }
   
-  if (key === "r" && !resetInProgress && !resetRequested) {
+  if (key === "r" || (isGamepadButtonPressed(8)) && !resetInProgress && !resetRequested) {
     resetRequested = true;
     setTimeout(() => {
       if (resetRequested) {
